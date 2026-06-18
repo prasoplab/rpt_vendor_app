@@ -2,18 +2,18 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:rpt_vendor_app/models/rpt_models.dart';
-import 'package:rpt_vendor_app/screens/result_screen.dart';
+import 'package:rpt_vendor_app/screens/result_screen.dart'; 
 
 class EvaluationScreen extends StatefulWidget {
   final String userName;
-  final String vendorName;
-  final List<DirectorMatch> searchResults;
+  final SupplierEvaluation? initialEvalData;
+  final List<DirectorMatch> rptResults; 
 
   const EvaluationScreen({
-    super.key,
-    required this.userName,
-    required this.vendorName,
-    required this.searchResults,
+    super.key, 
+    required this.userName, 
+    this.initialEvalData, 
+    this.rptResults = const [], 
   });
 
   @override
@@ -21,493 +21,433 @@ class EvaluationScreen extends StatefulWidget {
 }
 
 class _EvaluationScreenState extends State<EvaluationScreen> {
-  final SupplierEvaluation _evalData = SupplierEvaluation();
-  bool _isSaving = false;
-
-  final TextEditingController _commentSpecCtrl = TextEditingController();
-  final TextEditingController _commentPaymentCtrl = TextEditingController();
-  final TextEditingController _commentDeliveryCtrl = TextEditingController();
-  final TextEditingController _commentServiceCtrl = TextEditingController();
-  final TextEditingController _commentIso9001Ctrl = TextEditingController();
-  final TextEditingController _commentIso14001Ctrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  late SupplierEvaluation evalData;
+  bool _isLoading = false; 
 
   @override
   void initState() {
     super.initState();
-    _evalData.vendorName = widget.vendorName;
-    
-    _evalData.scoreSpec = 20;
-    _evalData.scorePayment = 25;
-    _evalData.scoreDelivery = 20;
-    _evalData.scoreService = 15;
-    _evalData.scoreIso9001 = 10;
-    _evalData.scoreIso14001 = 10;
-
-    bool hasRptMatch = widget.searchResults.any((element) => element.isMatch);
-    _evalData.rptStatus = hasRptMatch ? 'MATCH' : 'CLEAR';
+    evalData = widget.initialEvalData ?? SupplierEvaluation();
   }
 
-  @override
-  void dispose() {
-    _commentSpecCtrl.dispose();
-    _commentPaymentCtrl.dispose();
-    _commentDeliveryCtrl.dispose();
-    _commentServiceCtrl.dispose();
-    _commentIso9001Ctrl.dispose();
-    _commentIso14001Ctrl.dispose();
-    super.dispose();
-  }
+  // ==========================================
+  // 🚀 ฟังก์ชันส่งข้อมูลเข้า Google Sheets
+  // ==========================================
+  Future<void> _submitEvaluation() async {
+    if (!_formKey.currentState!.validate()) return;
+    _formKey.currentState!.save();
 
-  String _calculateApprovalRoute() {
-    bool isRptMatch = _evalData.rptStatus == 'MATCH';
-    int score = _evalData.totalScore;
-    List<String> route = [];
+    setState(() {
+      _isLoading = true;
+    });
 
-    if (isRptMatch) {
-      route.add("1. สำนักเลขานุการ (รับทราบ)");
-    }
+    final String scriptUrl = 'https://script.google.com/macros/s/AKfycbxl01N5r_wjweW_AMlA8kE-P3vkDKU86kxSWNF3UmwlTdy1O16XnktaH1wYMgEScONJ/exec';
 
-    if (score >= 70) {
-      route.add("${route.length + 1}. ผู้จัดการแผนกจัดซื้อ (อนุมัติ)");
-    } else {
-      route.add("${route.length + 1}. ผู้จัดการแผนกจัดซื้อ (ตรวจสอบ)");
-      route.add("${route.length + 1}. ประธานเจ้าหน้าที่สายงานบริหารงานทั่วไป (อนุมัติ)");
-    }
+    final Map<String, dynamic> payload = {
+      // 🌟 ระบบแยกว่าเป็นการสร้างใหม่ (save) หรือแก้ไข (update)
+      "action": evalData.evalId != null ? "update_evaluation" : "save_evaluation",
+      "evalId": evalData.evalId ?? "",
+      
+      "vendorName": evalData.vendorName,
+      "productType": evalData.productType,
+      "address": evalData.address,
+      "contactPerson": evalData.contactPerson,
+      "phone": evalData.phone,
+      "evaluatedBy": widget.userName,
+      "rptStatus": evalData.rptStatus,
+      
+      "evaluationType": evalData.evaluationType,
 
-    return route.join(" ➡️ ");
-  }
+      "scoreSpec": evalData.scoreSpec.toString(),
+      "scorePayment": evalData.scorePayment.toString(),
+      "scoreDelivery": evalData.scoreDelivery.toString(),
+      "commentSpec": evalData.commentSpec,
+      "commentPayment": evalData.commentPayment,
+      "commentDelivery": evalData.commentDelivery,
 
-  Future<void> _saveToGoogleSheetsAndContinue() async {
-    _evalData.commentSpec = _commentSpecCtrl.text.isEmpty ? '-' : _commentSpecCtrl.text;
-    _evalData.commentPayment = _commentPaymentCtrl.text.isEmpty ? '-' : _commentPaymentCtrl.text;
-    _evalData.commentDelivery = _commentDeliveryCtrl.text.isEmpty ? '-' : _commentDeliveryCtrl.text;
-    _evalData.commentService = _commentServiceCtrl.text.isEmpty ? '-' : _commentServiceCtrl.text;
-    _evalData.commentIso9001 = _commentIso9001Ctrl.text.isEmpty ? '-' : _commentIso9001Ctrl.text;
-    _evalData.commentIso14001 = _commentIso14001Ctrl.text.isEmpty ? '-' : _commentIso14001Ctrl.text;
+      "scoreExperience": evalData.scoreExperience.toString(),
+      "scoreReadiness": evalData.scoreReadiness.toString(),
+      "commentExperience": evalData.commentExperience,
+      "commentReadiness": evalData.commentReadiness,
 
-    final String finalApprovalRoute = _calculateApprovalRoute();
-
-    setState(() => _isSaving = true);
+      "scoreService": evalData.scoreService.toString(),
+      "scoreIso9001": evalData.scoreIso9001.toString(),
+      "scoreIso14001": evalData.scoreIso14001.toString(),
+      "commentService": evalData.commentService,
+      "commentIso9001": evalData.commentIso9001,
+      "commentIso14001": evalData.commentIso14001,
+    };
 
     try {
-      const String webAppUrl = 'https://script.google.com/macros/s/AKfycbx6GvQzNAHR4wu30XHpNzWgatMhZWUwVxKDN912nZtDqjWbwSKd8tatImuf8tGCQni3/exec';
-
       final response = await http.post(
-        Uri.parse(webAppUrl),
-        headers: {'Content-Type': 'text/plain'},
-        body: jsonEncode({
-          'action': 'save_evaluation',
-          'vendor_name': _evalData.vendorName,
-          'product_type': _evalData.productType,
-          'address': _evalData.address,
-          'contact_person': _evalData.contactPerson,
-          'phone': _evalData.phone,
-          'score_spec': _evalData.scoreSpec,
-          'score_payment': _evalData.scorePayment,
-          'score_delivery': _evalData.scoreDelivery,
-          'score_service': _evalData.scoreService,
-          'score_iso9001': _evalData.scoreIso9001,
-          'score_iso14001': _evalData.scoreIso14001,
-          'rpt_status': _evalData.rptStatus,
-          'evaluated_by': widget.userName,
-          'comment_spec': _evalData.commentSpec,
-          'comment_payment': _evalData.commentPayment,
-          'comment_delivery': _evalData.commentDelivery,
-          'comment_service': _evalData.commentService,
-          'comment_iso9001': _evalData.commentIso9001,
-          'comment_iso14001': _evalData.commentIso14001,
-          'approval_route': finalApprovalRoute,
-        }),
+        Uri.parse(scriptUrl),
+        body: payload,
       );
 
-      if (response.statusCode == 200) {
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        final result = jsonDecode(response.body);
+        if (result['status'] == 'success') {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ บันทึกข้อมูลสำเร็จ!')));
+            
+            Navigator.pushReplacement(context, MaterialPageRoute(
               builder: (context) => ResultScreen(
-                userName: widget.userName,
-                evalData: _evalData,
-                searchResults: widget.searchResults,
-              ),
-            ),
-          );
+                userName: widget.userName, 
+                evalData: evalData, 
+                searchResults: widget.rptResults, 
+              )
+            ));
+          }
+        } else {
+          _showError('เกิดข้อผิดพลาดจากระบบหลังบ้าน: ${result['message']}');
         }
       } else {
-        _showError('บันทึกไม่สำเร็จ: ${response.statusCode}');
+        _showError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ (Code: ${response.statusCode})');
       }
     } catch (e) {
-      _showError('ข้อผิดพลาดการเชื่อมต่อ: $e');
+      _showError('เกิดข้อผิดพลาด: $e');
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
-    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $message'), backgroundColor: Colors.red));
   }
 
+  // ==========================================
+  // 🎨 วาดหน้าจอ UI
+  // ==========================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Text('ประเมินศักยภาพคู่ค้า', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        title: Text(evalData.evalId != null ? 'แก้ไขการประเมิน' : 'ให้คะแนนซัพพลายเออร์', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         backgroundColor: Colors.blue.shade900,
         foregroundColor: Colors.white,
-        centerTitle: true,
       ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildVendorHeader(),
-                const SizedBox(height: 6),
-                
-                _buildRptStatusSection(), // แสดงเฉพาะสถานะตรวจจับ RPT โล่งๆ สบายตา
-                const SizedBox(height: 8),
-                
-                _buildUltraCompactCard(
-                  title: '1. Spec สินค้า ข้อกำหนดของผู้ขายสอดคล้องกับข้อกำหนดที่ต้องการหรือไม่',
-                  currentVal: _evalData.scoreSpec,
-                  commentCtrl: _commentSpecCtrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. ตรงตามข้อกำหนดทุกประการ (20 คะแนน)', value: 20),
-                    _EvaluationOption(label: 'ข. ไม่ตรงข้อกำหนด แต่ใช้งานได้ (15 คะแนน)', value: 15),
-                    _EvaluationOption(label: 'ค. ให้ความมั่นใจว่าตอบสนองได้ (10 คะแนน)', value: 10),
-                    _EvaluationOption(label: 'ง. ใช้ไม่ได้ (0 คะแนน)', value: 0),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scoreSpec = val),
-                ),
-
-                _buildUltraCompactCard(
-                  title: '2. เงื่อนไขการชำระเงิน',
-                  currentVal: _evalData.scorePayment,
-                  commentCtrl: _commentPaymentCtrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. ชำระเงินภายใน 90 วัน (25 คะแนน)', value: 25),
-                    _EvaluationOption(label: 'ข. ชำระเงินภายใน 60 วัน (20 คะแนน)', value: 20),
-                    _EvaluationOption(label: 'ค. ชำระเงินภายใน 30 วัน (15 คะแนน)', value: 15),
-                    _EvaluationOption(label: 'ง. ชำระเงินทันที (10 คะแนน)', value: 10),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scorePayment = val),
-                ),
-
-                _buildUltraCompactCard(
-                  title: '3. ระยะเวลาในการส่งมอบ',
-                  currentVal: _evalData.scoreDelivery,
-                  commentCtrl: _commentDeliveryCtrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. 3-7 วัน (20 คะแนน)', value: 20),
-                    _EvaluationOption(label: 'ข. 8-15 วัน (15 คะแนน)', value: 15),
-                    _EvaluationOption(label: 'ค. 16-30 วัน (10 คะแนน)', value: 10),
-                    _EvaluationOption(label: 'ง. 30 วันขึ้นไป (5 คะแนน)', value: 5),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scoreDelivery = val),
-                ),
-
-                _buildUltraCompactCard(
-                  title: '4. ความสนใจในลูกค้า และการอำนวยความสะดวก',
-                  currentVal: _evalData.scoreService,
-                  commentCtrl: _commentServiceCtrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. ดีเยี่ยม (15 คะแนน)', value: 15),
-                    _EvaluationOption(label: 'ข. ดี (10 คะแนน)', value: 10),
-                    _EvaluationOption(label: 'ค. พอใช้ (5 คะแนน)', value: 5),
-                    _EvaluationOption(label: 'ง. ควรปรับปรุง (0 คะแนน)', value: 0),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scoreService = val),
-                ),
-
-                _buildUltraCompactCard(
-                  title: '5. ระบบบริหารคุณภาพ ภายในบริษัทได้รับ ISO 9001 แล้วหรือไม่',
-                  currentVal: _evalData.scoreIso9001,
-                  commentCtrl: _commentIso9001Ctrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. ได้รับใบรับรองแล้ว ISO 9001 (10 คะแนน)', value: 10),
-                    _EvaluationOption(label: 'ข. กำลังจัดทำ ISO 9001 (7 คะแนน)', value: 7),
-                    _EvaluationOption(label: 'ค. คิดที่จะทำในช่วง 1-2 ปี (5 คะแนน)', value: 5),
-                    _EvaluationOption(label: 'ง. ไม่สนใจที่จะทำ (0 คะแนน)', value: 0),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scoreIso9001 = val),
-                ),
-
-                _buildUltraCompactCard(
-                  title: '6. ระบบบริหารความปลอดภัยและสิ่งแวดล้อม ได้รับ ISO 14001 และ 45001 แล้วหรือไม่',
-                  currentVal: _evalData.scoreIso14001,
-                  commentCtrl: _commentIso14001Ctrl,
-                  options: [
-                    _EvaluationOption(label: 'ก. ได้รับใบรับรอง ISO 14001/45001 (10 คะแนน)', value: 10),
-                    _EvaluationOption(label: 'ข. กำลังจัดทำ ISO 14001/45001 (7 คะแนน)', value: 7),
-                    _EvaluationOption(label: 'ค. คิดที่จะทำในช่วง 1-2 ปี (5 คะแนน)', value: 5),
-                    _EvaluationOption(label: 'ง. ไม่สนใจที่จะทำ (0 คะแนน)', value: 0),
-                  ],
-                  onChanged: (val) => setState(() => _evalData.scoreIso14001 = val),
-                ),
-                
-                const SizedBox(height: 6),
-                _buildTotalScoreBoard(),
-                const SizedBox(height: 6),
-                
-                _buildApprovalRouteBoard(),
-                const SizedBox(height: 12),
-                
-                SizedBox(
-                  width: double.infinity,
-                  height: 44, 
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue.shade900,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    ),
-                    onPressed: _isSaving ? null : _saveToGoogleSheetsAndContinue,
-                    icon: const Icon(Icons.save_rounded, size: 18),
-                    label: const Text('บันทึกผลประเมินและส่งอนุมัติ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                const SizedBox(height: 15),
-              ],
-            ),
-          ),
-          if (_isSaving) _buildLoadingOverlay(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVendorHeader() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text('ซัพพลายเออร์ที่ประเมิน:', style: TextStyle(fontSize: 12, color: Colors.black54)),
-          Text(widget.vendorName, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Colors.black87)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRptStatusSection() {
-    final bool isMatch = _evalData.rptStatus == 'MATCH';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: isMatch ? Colors.red.shade50 : Colors.green.shade50,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: isMatch ? Colors.red.shade200 : Colors.green.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      body: _isLoading 
+        ? Center(child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                isMatch ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded,
-                color: isMatch ? Colors.red.shade800 : Colors.green.shade800,
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'ผลการตรวจสอบบุคคลเกี่ยวโยง (RPT):',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: isMatch ? Colors.red.shade900 : Colors.green.shade900),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isMatch ? Colors.red.shade700 : Colors.green.shade700,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  _evalData.rptStatus,
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text('กำลังบันทึกข้อมูล...', style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold))
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            isMatch 
-              ? '⚠️ ตรวจพบรายชื่อกรรมการ มีความเกี่ยวข้องกับกลุ่มบุคคลภายในบริษัท (ผ่านกระบวนการรับทราบในฟอร์ม)' 
-              : '✅ ไม่พบรายชื่อเกี่ยวโยงกับกลุ่มบุคคลภายในบริษัท',
-            style: TextStyle(fontSize: 11.5, color: isMatch ? Colors.red.shade800 : Colors.green.shade800),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUltraCompactCard({
-    required String title,
-    required int currentVal,
-    required List<_EvaluationOption> options,
-    required ValueChanged<int> onChanged,
-    required TextEditingController commentCtrl,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8), 
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: Colors.grey.shade200)),
-      child: Padding(
-        padding: const EdgeInsets.all(10.0), 
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.black87)),
-            const SizedBox(height: 2), 
-            
-            Wrap(
-              spacing: 4.0, 
-              runSpacing: 0.0, 
-              children: options.map((opt) {
-                final bool isSelected = currentVal == opt.value;
-                return InkWell(
-                  onTap: () => onChanged(opt.value),
-                  child: IntrinsicWidth( 
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+          ))
+        : SingleChildScrollView(
+        padding: const EdgeInsets.all(12.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.blue.shade200), borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('ประเภทแบบประเมิน:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Row(
                       children: [
-                        Transform.scale(
-                          scale: 0.8, 
-                          child: Radio<int>(
-                            value: opt.value,
-                            groupValue: currentVal,
-                            activeColor: Colors.blue.shade800,
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, 
-                            onChanged: (val) {
-                              if (val != null) onChanged(val);
+                        Expanded(
+                          child: RadioListTile<String>(
+                            title: const Text('ร้านค้า', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            value: 'ร้านค้า',
+                            groupValue: evalData.evaluationType,
+                            activeColor: Colors.blue.shade900,
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              setState(() {
+                                evalData.evaluationType = value!;
+                                evalData.scoreExperience = 0; evalData.scoreReadiness = 0;
+                              });
                             },
                           ),
                         ),
-                        Text(
-                          opt.label,
-                          style: TextStyle(
-                            fontSize: 11.5, 
-                            color: isSelected ? Colors.blue.shade900 : Colors.black87,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
+                        Expanded(
+                          child: RadioListTile<String>(
+                            title: const Text('ผู้รับเหมา', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            value: 'ผู้รับเหมา',
+                            groupValue: evalData.evaluationType,
+                            activeColor: Colors.orange.shade900,
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              setState(() {
+                                evalData.evaluationType = value!;
+                                evalData.scoreSpec = 0; evalData.scorePayment = 0; evalData.scoreDelivery = 0;
+                              });
+                            },
                           ),
                         ),
-                        const SizedBox(width: 8), 
                       ],
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-            
-            const SizedBox(height: 5), 
-            
-            SizedBox(
-              height: 32, 
-              child: TextField(
-                controller: commentCtrl,
-                decoration: InputDecoration(
-                  hintText: 'บันทึกความเห็น หรือระบุหลักฐานประกอบ...',
-                  hintStyle: const TextStyle(fontSize: 11, color: Colors.black38),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Colors.grey.shade200)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Colors.grey.shade200)),
+                  ],
                 ),
-                style: const TextStyle(fontSize: 11.5),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+
+              const Text(' ข้อมูลพื้นฐาน', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  children: [
+                    TextFormField(
+                      initialValue: evalData.vendorName,
+                      decoration: const InputDecoration(labelText: 'ชื่อผู้ขาย / ซัพพลายเออร์', isDense: true), 
+                      onSaved: (val) => evalData.vendorName = val ?? ''
+                    ),
+                    TextFormField(
+                      initialValue: evalData.productType,
+                      decoration: const InputDecoration(labelText: 'ประเภทสินค้า/บริการ', isDense: true), 
+                      onSaved: (val) => evalData.productType = val ?? ''
+                    ),
+                    TextFormField(
+                      initialValue: evalData.address,
+                      decoration: const InputDecoration(labelText: 'ที่อยู่', isDense: true), 
+                      onSaved: (val) => evalData.address = val ?? ''
+                    ),
+                    Row(
+                      children: [
+                        Expanded(child: TextFormField(
+                          initialValue: evalData.contactPerson,
+                          decoration: const InputDecoration(labelText: 'ผู้ติดต่อ', isDense: true), 
+                          onSaved: (val) => evalData.contactPerson = val ?? ''
+                        )),
+                        const SizedBox(width: 12),
+                        Expanded(child: TextFormField(
+                          initialValue: evalData.phone,
+                          decoration: const InputDecoration(labelText: 'เบอร์โทร', isDense: true), 
+                          onSaved: (val) => evalData.phone = val ?? ''
+                        )),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(' เกณฑ์การประเมิน (${evalData.evaluationType})', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue)),
+                  Text('รวม: ${evalData.totalScore} คะแนน', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red.shade800)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              
+              if (evalData.evaluationType == 'ร้านค้า') ...[
+                _buildChoiceField(
+                  title: '1. Spec สินค้า ข้อกำหนดของผู้ขายสอดคล้องกับข้อกำหนดที่ต้องการหรือไม่ (Max 20)',
+                  currentScore: evalData.scoreSpec,
+                  initialComment: evalData.commentSpec,
+                  options: [
+                    {'text': 'ก. ตรงตามข้อกำหนดทุกประการ', 'score': 20},
+                    {'text': 'ข. ไม่ตรงข้อกำหนด แต่ใช้งานได้', 'score': 15},
+                    {'text': 'ค. ให้ความมั่นใจว่าตอบสนองได้', 'score': 10},
+                    {'text': 'ง. ใช้ไม่ได้', 'score': 0},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreSpec = val),
+                  onCommentChanged: (val) => evalData.commentSpec = val,
+                ),
+                _buildChoiceField(
+                  title: '2. เงื่อนไขการชำระเงิน (Max 25)',
+                  currentScore: evalData.scorePayment,
+                  initialComment: evalData.commentPayment,
+                  options: [
+                    {'text': 'ก. กำหนดการชำระเงินภายใน 90 วัน', 'score': 25},
+                    {'text': 'ข. กำหนดการชำระเงินภายใน 60 วัน', 'score': 20},
+                    {'text': 'ค. กำหนดการชำระเงินภายใน 30 วัน', 'score': 15},
+                    {'text': 'ง. ชำระเงินทันที', 'score': 10},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scorePayment = val),
+                  onCommentChanged: (val) => evalData.commentPayment = val,
+                ),
+                _buildChoiceField(
+                  title: '3. ระยะเวลาในการส่งมอบ (Max 20)',
+                  currentScore: evalData.scoreDelivery,
+                  initialComment: evalData.commentDelivery,
+                  options: [
+                    {'text': 'ก. 3-7 วัน', 'score': 20},
+                    {'text': 'ข. 8-15 วัน', 'score': 15},
+                    {'text': 'ค. 16-30 วัน', 'score': 10},
+                    {'text': 'ง. 30 วันขึ้นไป', 'score': 5},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreDelivery = val),
+                  onCommentChanged: (val) => evalData.commentDelivery = val,
+                ),
+                _buildChoiceField(
+                  title: '4. ความสนใจในลูกค้า และการอำนวยความสะดวก (Max 15)',
+                  currentScore: evalData.scoreService,
+                  initialComment: evalData.commentService,
+                  options: [
+                    {'text': 'ก. ดีเยี่ยม', 'score': 15},
+                    {'text': 'ข. ดี', 'score': 10},
+                    {'text': 'ค. พอใช้', 'score': 5},
+                    {'text': 'ง. ควรปรับปรุง', 'score': 0},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreService = val),
+                  onCommentChanged: (val) => evalData.commentService = val,
+                ),
+              ] else ...[
+                _buildChoiceField(
+                  title: '1. ประสบการณ์และผลงาน ในอดีต และงานที่ระหว่างทำอยู่ในปัจจุบัน (Max 30)',
+                  currentScore: evalData.scoreExperience,
+                  initialComment: evalData.commentExperience,
+                  options: [
+                    {'text': 'ก. มี Web site และ company profile', 'score': 30},
+                    {'text': 'ข. มี Web site หรือ company profile', 'score': 25},
+                    {'text': 'ค. ได้ข้อมูลสัมภาษณ์ผ่านโทรศัพท์', 'score': 20},
+                    {'text': 'ง. ไม่ให้ข้อมูล', 'score': 0},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreExperience = val),
+                  onCommentChanged: (val) => evalData.commentExperience = val,
+                ),
+                _buildChoiceField(
+                  title: '2. ความพร้อมที่จะเข้าดำเนินการหลังการสั่งจ้าง (Max 30)',
+                  currentScore: evalData.scoreReadiness,
+                  initialComment: evalData.commentReadiness,
+                  options: [
+                    {'text': 'ก. 3-7 วัน', 'score': 30},
+                    {'text': 'ข. 8-15 วัน', 'score': 25},
+                    {'text': 'ค. 16-30 วัน', 'score': 20},
+                    {'text': 'ง. 30 วันขึ้นไป', 'score': 15},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreReadiness = val),
+                  onCommentChanged: (val) => evalData.commentReadiness = val,
+                ),
+                _buildChoiceField(
+                  title: '3. ความสนใจในลูกค้า และการอำนวยความสะดวก (Max 20)',
+                  currentScore: evalData.scoreService,
+                  initialComment: evalData.commentService,
+                  options: [
+                    {'text': 'ก. ดีเยี่ยม', 'score': 20},
+                    {'text': 'ข. ดี', 'score': 15},
+                    {'text': 'ค. พอใช้', 'score': 10},
+                    {'text': 'ง. ควรปรับปรุง', 'score': 0},
+                  ],
+                  onScoreChanged: (val) => setState(() => evalData.scoreService = val),
+                  onCommentChanged: (val) => evalData.commentService = val,
+                ),
+              ],
+
+              _buildChoiceField(
+                title: '${evalData.evaluationType == 'ร้านค้า' ? '5' : '4'}. ระบบบริหารคุณภาพ ภายในบริษัทได้รับ ISO 9001 แล้วหรือไม่ (Max 10)',
+                currentScore: evalData.scoreIso9001,
+                initialComment: evalData.commentIso9001,
+                options: [
+                  {'text': 'ก. ได้รับใบรับรองแล้ว ISO 9001', 'score': 10},
+                  {'text': 'ข. กำลังจัดทำ ISO 9001', 'score': 7},
+                  {'text': 'ค. คิดที่จะทำในช่วง 1-2 ปี', 'score': 5},
+                  {'text': 'ง. ไม่สนใจที่จะทำ', 'score': 0},
+                ],
+                onScoreChanged: (val) => setState(() => evalData.scoreIso9001 = val),
+                onCommentChanged: (val) => evalData.commentIso9001 = val,
+              ),
+              _buildChoiceField(
+                title: '${evalData.evaluationType == 'ร้านค้า' ? '6' : '5'}. ระบบบริหารความปลอดภัยและสิ่งแวดล้อม ภายในบริษัทได้รับ ISO 14001 และ 45001 แล้วหรือไม่ (Max 10)',
+                currentScore: evalData.scoreIso14001,
+                initialComment: evalData.commentIso14001,
+                options: [
+                  {'text': 'ก. ได้รับใบรับรองแล้ว ISO 14001 และ 45001', 'score': 10},
+                  {'text': 'ข. กำลังจัดทำ ISO 14001 และ 45001', 'score': 7},
+                  {'text': 'ค. คิดที่จะทำในช่วง 1-2 ปี', 'score': 5},
+                  {'text': 'ง. ไม่สนใจที่จะทำ', 'score': 0},
+                ],
+                onScoreChanged: (val) => setState(() => evalData.scoreIso14001 = val),
+                onCommentChanged: (val) => evalData.commentIso14001 = val,
+              ),
+
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade900, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  onPressed: _submitEvaluation,
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('บันทึกข้อมูลการประเมิน', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTotalScoreBoard() {
+  Widget _buildChoiceField({
+    required String title,
+    required int currentScore,
+    required String initialComment,
+    required List<Map<String, dynamic>> options,
+    required void Function(int) onScoreChanged,
+    required void Function(String) onCommentChanged,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _evalData.totalScore >= 70 ? Colors.green.shade50 : Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: _evalData.totalScore >= 70 ? Colors.green.shade200 : Colors.orange.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text('คะแนนรวมปัจจุบัน:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          Text('${_evalData.totalScore} / 100 คะแนน', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: _evalData.totalScore >= 70 ? Colors.green.shade900 : Colors.orange.shade900)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildApprovalRouteBoard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.purple.shade50,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.purple.shade200),
+        color: Colors.white, 
+        border: Border.all(color: Colors.grey.shade300), 
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [BoxShadow(color: Colors.grey.shade100, blurRadius: 4, spreadRadius: 1)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.account_tree_rounded, color: Colors.purple.shade800, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                'สายงานการอนุมัติเอกสาร (Approval Route):',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple.shade900),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+          const SizedBox(height: 8),
+          
+          ...options.map((opt) {
+            return InkWell(
+              onTap: () => onScoreChanged(opt['score']),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 24, height: 24,
+                      child: Radio<int>(
+                        value: opt['score'],
+                        groupValue: currentScore,
+                        onChanged: (val) => onScoreChanged(val!),
+                        activeColor: Colors.blue.shade800,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('${opt['text']} (${opt['score']} คะแนน)', style: const TextStyle(fontSize: 12.5))),
+                  ],
+                ),
               ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _calculateApprovalRoute(),
-            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.purple.shade900),
+            );
+          }).toList(),
+          
+          const SizedBox(height: 12),
+          TextFormField(
+            initialValue: initialComment, // 🌟 เพิ่มบรรทัดนี้เพื่อให้แสดงคอมเมนต์เดิมตอนกดแก้ไข
+            decoration: InputDecoration(
+              labelText: 'หลักฐาน / บันทึกความเห็น อื่นๆ',
+              labelStyle: const TextStyle(fontSize: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+              isDense: true,
+              prefixIcon: const Icon(Icons.comment_rounded, size: 16, color: Colors.black38),
+            ),
+            onChanged: onCommentChanged,
           ),
         ],
       ),
     );
   }
-
-  Widget _buildLoadingOverlay() {
-    return Container(
-      color: Colors.black26,
-      child: const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text('กำลังบันทึกลง Google Sheets...', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EvaluationOption {
-  final String label;
-  final int value;
-  _EvaluationOption({required this.label, required this.value});
 }

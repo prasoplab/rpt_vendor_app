@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http; 
 import 'dart:convert';
-import 'search_vendor_screen.dart'; 
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:rpt_vendor_app/screens/menu_screen.dart'; 
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,21 +11,17 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _usernameCtrl = TextEditingController();
+  final TextEditingController _passwordCtrl = TextEditingController();
   
-  bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
-  // 🌟 1. นำ URL ที่ได้จากการ Deploy Google Apps Script มาวางตรงนี้ครับ
-  final String googleScriptUrl = 'https://script.google.com/macros/s/AKfycbx6GvQzNAHR4wu30XHpNzWgatMhZWUwVxKDN912nZtDqjWbwSKd8tatImuf8tGCQni3/exec';
+  Future<void> _login() async {
+    FocusScope.of(context).unfocus(); 
 
-  void _handleLogin() async {
-    final String username = _usernameController.text.trim();
-    final String password = _passwordController.text;
-
-    if (username.isEmpty || password.isEmpty) {
-      _showSnackBar('กรุณากรอกรหัสพนักงานและรหัสผ่านให้ครบถ้วน', Colors.red);
+    if (_usernameCtrl.text.isEmpty || _passwordCtrl.text.isEmpty) {
+      _showSnackBar('กรุณากรอกรหัสพนักงานและรหัสผ่านให้ครบถ้วน', Colors.orange.shade800);
       return;
     }
 
@@ -33,50 +29,46 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
+    const String scriptUrl = 'https://script.google.com/macros/s/AKfycbxl01N5r_wjweW_AMlA8kE-P3vkDKU86kxSWNF3UmwlTdy1O16XnktaH1wYMgEScONJ/exec';
+
     try {
-      // 🌟 2. ยิงข้อมูลเชื่อมต่อไปยัง Google Sheet API ของเรา
       final response = await http.post(
-        Uri.parse(googleScriptUrl),
-        headers: {'Content-Type': 'text/plain'},
-        body: jsonEncode({
-          'action': 'login', // บอก API ว่าเราต้องการใช้ฟังก์ชันเข้าสู่ระบบ
-          'username': username, // ส่งรหัสพนักงาน (เทียบกับคอลัมน์ A)
-          'password': password, // ส่งรหัสผ่าน (เทียบกับคอลัมน์ B)
-        }),
+        Uri.parse(scriptUrl),
+        body: {
+          "action": "login",
+          "username": _usernameCtrl.text.trim(),
+          "password": _passwordCtrl.text.trim(),
+        },
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        final result = jsonDecode(response.body);
 
-        if (data['status'] == 'success') {
-          // ดึงชื่อจริงและสิทธิ์การใช้งาน ที่ส่งกลับมาจาก Sheet (คอลัมน์ C และ E)
-          String fullNameFromDatabase = data['name'] ?? 'ไม่ระบุชื่อ'; 
-          // String userRole = data['role'] ?? ''; // (เผื่อใช้แบ่งสิทธิ์ในอนาคต)
-
+        if (result['status'] == 'success') {
           if (mounted) {
-            _showSnackBar('ยินดีต้อนรับคุณ $fullNameFromDatabase', Colors.green);
-            
-            // เปลี่ยนหน้าไปยังหน้าค้นหา พร้อมส่งชื่อจาก Google Sheet ไปออกรายงาน PDF
+            String userName = result['name'] ?? 'ไม่ระบุชื่อ';
+            String role = result['role'] ?? 'User';
+
+            _showSnackBar('เข้าสู่ระบบสำเร็จ! ยินดีต้อนรับคุณ $userName', Colors.green.shade700);
+
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => SearchVendorScreen(
-                  userName: fullNameFromDatabase, 
+                builder: (context) => MenuScreen(
+                  userName: userName,
+                  role: role,
                 ),
               ),
             );
           }
         } else {
-          // กรณี Username/Password ไม่ตรงกับใน Sheet
-          _showSnackBar('รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง', Colors.red);
+          _showSnackBar('รหัสพนักงาน หรือ รหัสผ่านไม่ถูกต้อง', Colors.red.shade800);
         }
       } else {
-        _showSnackBar('การเชื่อมต่อเซิร์ฟเวอร์ผิดพลาด (${response.statusCode})', Colors.orange);
+        _showSnackBar('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ (Code: ${response.statusCode})', Colors.red.shade800);
       }
     } catch (e) {
-      print('==== ERROR CONNECTION ====');
-      print(e.toString());
-      _showSnackBar('Error: $e', Colors.red);
+      _showSnackBar('เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', Colors.red.shade800);
     } finally {
       if (mounted) {
         setState(() {
@@ -86,95 +78,92 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showSnackBar(String message, Color backgroundColor) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: backgroundColor),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _usernameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: Colors.blue.shade50,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(32.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.engineering, size: 60, color: Colors.blue.shade900),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'CIVIL - RPT Checker',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('เข้าสู่ระบบตรวจสอบบุคคลเกี่ยวโยง', style: TextStyle(color: Colors.grey, fontSize: 14)),
-                    const SizedBox(height: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.blue.shade200, blurRadius: 10, spreadRadius: 2)],
+                ),
+                child: Icon(Icons.assignment_ind_rounded, size: 80, color: Colors.blue.shade900),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'ระบบประเมินซัพพลายเออร์\nและตรวจสอบ RPT',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue.shade900, height: 1.3),
+              ),
+              const SizedBox(height: 40),
 
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: Colors.grey.shade300, blurRadius: 10, offset: const Offset(0, 5))],
+                ),
+                child: Column(
+                  children: [
                     TextField(
-                      controller: _usernameController,
+                      controller: _usernameCtrl,
                       decoration: InputDecoration(
-                        labelText: 'รหัสพนักงาน (Employee ID)',
-                        prefixIcon: const Icon(Icons.person_outline),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        labelText: 'รหัสพนักงาน',
+                        prefixIcon: const Icon(Icons.person),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     TextField(
-                      controller: _passwordController,
+                      controller: _passwordCtrl,
                       obscureText: _obscurePassword,
                       decoration: InputDecoration(
-                        labelText: 'รหัสผ่าน (Password)',
-                        prefixIcon: const Icon(Icons.lock_outline),
+                        labelText: 'รหัสผ่าน',
+                        prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                          icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+                          // 🌟 แก้ไขตรงนี้เรียบร้อยครับ ลบ onChanged ออกแล้ว
                           onPressed: () {
                             setState(() {
                               _obscurePassword = !_obscurePassword;
                             });
                           },
                         ),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onSubmitted: (_) => _handleLogin(), 
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 24),
 
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: _isLoading ? null : _handleLogin,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue.shade900,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          elevation: 2,
                         ),
+                        onPressed: _isLoading ? null : _login,
                         child: _isLoading
                             ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                             : const Text('เข้าสู่ระบบ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -183,7 +172,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
-            ),
+              const SizedBox(height: 30),
+              const Text('© 2026 Civil Engineering Public Company Limited', style: TextStyle(fontSize: 12, color: Colors.black45)),
+            ],
           ),
         ),
       ),

@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 
 class AllDirectorsScreen extends StatefulWidget {
-  final String userName; 
+  final String userName;
   const AllDirectorsScreen({super.key, required this.userName});
+
   @override
   State<AllDirectorsScreen> createState() => _AllDirectorsScreenState();
 }
@@ -27,171 +30,202 @@ class _AllDirectorsScreenState extends State<AllDirectorsScreen> {
   }
 
   void _filterSearch(String query) {
-    if (query.isEmpty) { setState(() => _filteredDirectors = _allDirectors); return; }
     setState(() {
-      _filteredDirectors = _allDirectors.where((dir) {
-        return "${dir['first_name']} ${dir['last_name']}".toLowerCase().contains(query.toLowerCase());
-      }).toList();
+      if (query.isEmpty) { _filteredDirectors = _allDirectors; } 
+      else {
+        _filteredDirectors = _allDirectors.where((dir) {
+          return "${dir['first_name']} ${dir['last_name']}".toLowerCase().contains(query.toLowerCase());
+        }).toList();
+      }
     });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('ฐานข้อมูลบุคคลเกี่ยวโยง', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        backgroundColor: Colors.blue.shade900,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          Container(
+            color: Colors.blue.shade900,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: TextField(
+              controller: _searchCtrl, 
+              onChanged: _filterSearch,
+              decoration: InputDecoration(
+                hintText: 'ค้นหาชื่อ-นามสกุล...',
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                prefixIcon: const Icon(Icons.search, size: 20),
+                filled: true, fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _isLoading 
+                ? const Center(child: CircularProgressIndicator()) 
+                : _filteredDirectors.isEmpty 
+                    ? const Center(child: Text('ไม่พบข้อมูลกรรมการ', style: TextStyle(color: Colors.grey)))
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        itemCount: _filteredDirectors.length,
+                        separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5, indent: 56), 
+                        itemBuilder: (context, index) => _buildCompactListTile(_filteredDirectors[index]),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🌟 วิดเจ็ตรายการสไตล์มินิมอล (แก้บั๊กเส้นแดงเรียบร้อย)
+  Widget _buildCompactListTile(Map<String, dynamic> dir) {
+    bool isActive = (dir['active_status'] == 'ยังเกี่ยวข้อง' || dir['active_status'] == '');
+    String fullName = '${dir['first_name']} ${dir['last_name']}';
+    
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: isActive ? Colors.green.shade50 : Colors.red.shade50,
+        child: Icon(
+          isActive ? Icons.person_outline_rounded : Icons.person_off_outlined, // 🌟 แก้ชื่อไอคอนแล้ว
+          size: 18, 
+          color: isActive ? Colors.green.shade700 : Colors.red.shade700
+        ),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              fullName, 
+              style: TextStyle(
+                fontSize: 14, 
+                fontWeight: FontWeight.w600, 
+                color: isActive ? Colors.black87 : Colors.grey.shade500,
+                decoration: isActive ? TextDecoration.none : TextDecoration.lineThrough
+              ),
+            ),
+          ),
+          if (!isActive)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
+              child: Text(
+                'พ้นสภาพ ${dir['end_date']}', 
+                style: TextStyle(fontSize: 10, color: Colors.red.shade800, fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 2.0), // 🌟 แก้ไขการพิมพ์ Padding แล้ว
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${dir['relationship']}  •  วันเกิด: ${dir['dob']} (${dir['age_status']})',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'ID: ${dir['director_id']}  •  ครอบครัว: ${dir['marital_status']}  •  โดย: ${dir['created_by'] ?? '-'}',
+              style: TextStyle(fontSize: 10, color: Colors.black38),
+            ),
+          ],
+        ),
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.edit_outlined, size: 18),
+        color: Colors.grey.shade400,
+        onPressed: () => _showEditDialog(dir), // 🌟 เปลี่ยน onTap เป็น onPressed แล้ว
+      ),
+    );
   }
 
   void _showEditDialog(Map<String, dynamic> dir) {
     final formKey = GlobalKey<FormState>();
     final firstNameCtrl = TextEditingController(text: dir['first_name']);
     final lastNameCtrl = TextEditingController(text: dir['last_name']);
-    
-    String relationship = dir['relationship']?.toString().trim() ?? 'กรรมการบริษัท';
-    String maritalStatus = dir['marital_status']?.toString().trim() ?? 'โสด';
-    String activeStatus = dir['active_status']?.toString().trim() ?? 'ยังเกี่ยวข้อง';
-    String endDateStr = dir['end_date']?.toString().trim() ?? '';
-
-    List<String> relItems = ['กรรมการบริษัท', 'ผู้ถือหุ้นใหญ่', 'ผู้บริหารระดับสูง', 'เครือญาติ'];
-    List<String> marItems = ['โสด', 'สมรส', 'หย่าร้าง'];
-    List<String> activeItems = ['ยังเกี่ยวข้อง', 'พ้นสภาพ'];
-
-    if (!relItems.contains(relationship)) { relationship.isEmpty || relationship == 'กรรมการ' ? relationship = 'กรรมการบริษัท' : relItems.add(relationship); }
-    if (!marItems.contains(maritalStatus)) { maritalStatus.isEmpty ? maritalStatus = 'โสด' : marItems.add(maritalStatus); }
-    if (!activeItems.contains(activeStatus)) { activeStatus.isEmpty ? activeStatus = 'ยังเกี่ยวข้อง' : activeItems.add(activeStatus); }
-
+    String relationship = dir['relationship'] ?? 'กรรมการบริษัท';
+    String maritalStatus = dir['marital_status'] ?? 'โสด';
+    String activeStatus = dir['active_status'] ?? 'ยังเกี่ยวข้อง';
+    String endDateStr = dir['end_date'] ?? '';
     bool isSaving = false;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Text('แก้ไขข้อมูลกรรมการ'),
-            content: SingleChildScrollView(
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(controller: firstNameCtrl, decoration: const InputDecoration(labelText: 'ชื่อ', border: OutlineInputBorder()), validator: (v) => v!.isEmpty ? 'กรอกชื่อ' : null),
-                    const SizedBox(height: 12),
-                    TextFormField(controller: lastNameCtrl, decoration: const InputDecoration(labelText: 'นามสกุล', border: OutlineInputBorder()), validator: (v) => v!.isEmpty ? 'กรอกนามสกุล' : null),
-                    const SizedBox(height: 12),
-                    
-                    // --- Dropdown สถานะ ---
-                    DropdownButtonFormField<String>(
-                      initialValue: activeStatus,
-                      decoration: const InputDecoration(labelText: 'สถานะปัจจุบัน', border: OutlineInputBorder()),
-                      items: activeItems.map((v) => DropdownMenuItem(value: v, child: Text(v, style: TextStyle(color: v == 'พ้นสภาพ' ? Colors.red : Colors.green)))).toList(),
-                      onChanged: (v) => setDialogState(() {
-                        activeStatus = v!;
-                        if (activeStatus == 'ยังเกี่ยวข้อง') endDateStr = ''; 
-                      }),
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text('แก้ไขข้อมูลกรรมการ', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(controller: firstNameCtrl, decoration: const InputDecoration(labelText: 'ชื่อ'), style: const TextStyle(fontSize: 14)),
+                  TextFormField(controller: lastNameCtrl, decoration: const InputDecoration(labelText: 'นามสกุล'), style: const TextStyle(fontSize: 14)),
+                  DropdownButtonFormField<String>(
+                    value: activeStatus, 
+                    items: ['ยังเกี่ยวข้อง', 'พ้นสภาพ'].map((v) => DropdownMenuItem(value: v, child: Text(v, style: const TextStyle(fontSize: 14)))).toList(), 
+                    onChanged: (v) => setDialogState(() => activeStatus = v!), 
+                    decoration: const InputDecoration(labelText: 'สถานะ')
+                  ),
+                  if (activeStatus == 'พ้นสภาพ') 
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(endDateStr.isEmpty ? 'เลือกวันที่พ้นสภาพ' : 'วันที่พ้นสภาพ: $endDateStr', style: const TextStyle(fontSize: 13)), 
+                      trailing: const Icon(Icons.calendar_today, size: 16),
+                      onTap: () async { 
+                        final p = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100)); 
+                        if (p != null) setDialogState(() => endDateStr = "${p.day}/${p.month}/${p.year}"); 
+                      }
                     ),
-                    if (activeStatus == 'พ้นสภาพ') ...[
-                      const SizedBox(height: 8),
-                      ListTile(
-                        shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
-                        title: Text(endDateStr.isEmpty ? 'คลิกเพื่อเลือกวันที่พ้นสภาพ' : 'พ้นสภาพ: $endDateStr', style: const TextStyle(fontSize: 14)),
-                        trailing: const Icon(Icons.date_range, color: Colors.red),
-                        onTap: () async {
-                          final DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-                          if (picked != null) setDialogState(() => endDateStr = "${picked.day}/${picked.month}/${picked.year}");
-                        },
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    // ------------------------
-
-                    DropdownButtonFormField<String>(initialValue: relationship, decoration: const InputDecoration(labelText: 'ความสัมพันธ์', border: OutlineInputBorder()), items: relItems.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setDialogState(() => relationship = v!)),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(initialValue: maritalStatus, decoration: const InputDecoration(labelText: 'สถานะครอบครัว', border: OutlineInputBorder()), items: marItems.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setDialogState(() => maritalStatus = v!)),
-                  ],
-                ),
+                  DropdownButtonFormField<String>(
+                    value: relationship, 
+                    items: ['กรรมการบริษัท', 'ผู้ถือหุ้นใหญ่', 'ผู้บริหารระดับสูง', 'เครือญาติ'].map((v) => DropdownMenuItem(value: v, child: Text(v, style: const TextStyle(fontSize: 14)))).toList(), 
+                    onChanged: (v) => setDialogState(() => relationship = v!), 
+                    decoration: const InputDecoration(labelText: 'ความสัมพันธ์')
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: maritalStatus, 
+                    items: ['โสด', 'สมรส', 'หย่าร้าง'].map((v) => DropdownMenuItem(value: v, child: Text(v, style: const TextStyle(fontSize: 14)))).toList(), 
+                    onChanged: (v) => setDialogState(() => maritalStatus = v!), 
+                    decoration: const InputDecoration(labelText: 'สถานะครอบครัว')
+                  ),
+                ],
               ),
             ),
-            actions: [
-              TextButton(onPressed: isSaving ? null : () => Navigator.pop(context), child: const Text('ยกเลิก')),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade900, foregroundColor: Colors.white),
-                onPressed: isSaving ? null : () async {
-                  if (formKey.currentState!.validate()) {
-                    if (activeStatus == 'พ้นสภาพ' && endDateStr.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาระบุวันที่พ้นสภาพ'))); return;
-                    }
-                    setDialogState(() => isSaving = true);
-                    bool success = await ApiService.editDirector({
-                      "director_id": dir['director_id'], "first_name": firstNameCtrl.text.trim(), "last_name": lastNameCtrl.text.trim(),
-                      "dob": dir['dob']?.toString() ?? '', "age_status": dir['age_status']?.toString() ?? '', 
-                      "relationship": relationship, "marital_status": maritalStatus, "edited_by": widget.userName,
-                      "active_status": activeStatus, "end_date": endDateStr
-                    });
-                    setDialogState(() => isSaving = false);
-                    if (success) {
-                      Navigator.pop(context); _fetchData();
-                      ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('อัปเดตข้อมูลสำเร็จ'), backgroundColor: Colors.green));
-                    }
-                  }
-                },
-                child: isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('บันทึก'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('ฐานข้อมูลบุคคลเกี่ยวโยงทั้งหมด'), backgroundColor: Theme.of(context).colorScheme.inversePrimary),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: TextField(
-              controller: _searchCtrl, onChanged: _filterSearch,
-              decoration: InputDecoration(hintText: 'ค้นหาชื่อ-นามสกุล...', prefixIcon: const Icon(Icons.search), border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)), contentPadding: const EdgeInsets.symmetric(horizontal: 20)),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade900, foregroundColor: Colors.white),
+              onPressed: isSaving ? null : () async {
+                setDialogState(() => isSaving = true);
+                bool success = await ApiService.editDirector({
+                  "director_id": dir['director_id'], "first_name": firstNameCtrl.text.trim(), "last_name": lastNameCtrl.text.trim(),
+                  "relationship": relationship, "marital_status": maritalStatus, "active_status": activeStatus, "end_date": endDateStr, "edited_by": widget.userName
+                });
+                if (success) { Navigator.pop(context); _fetchData(); }
+                else { setDialogState(() => isSaving = false); }
+              }, 
+              child: isSaving 
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text('บันทึก')
             ),
-          ),
-          Expanded(
-            child: _isLoading ? const Center(child: CircularProgressIndicator()) : _filteredDirectors.isEmpty ? const Center(child: Text('ไม่พบข้อมูลกรรมการ'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8.0),
-                  itemCount: _filteredDirectors.length,
-                  itemBuilder: (context, index) {
-                    var dir = _filteredDirectors[index];
-                    bool isActive = (dir['active_status'] == 'ยังเกี่ยวข้อง' || dir['active_status'] == '');
-                    
-                    return Card(
-                      elevation: 2, margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isActive ? Colors.blue.shade900 : Colors.grey,
-                          child: const Icon(Icons.person, color: Colors.white),
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(child: Text('${dir['first_name']} ${dir['last_name']}', style: TextStyle(fontWeight: FontWeight.bold, decoration: isActive ? TextDecoration.none : TextDecoration.lineThrough))),
-                          ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('ตำแหน่ง: ${dir['relationship']} | รหัส: ${dir['director_id']}'),
-                            const SizedBox(height: 4),
-                            // แสดงป้ายสถานะ
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: isActive ? Colors.green.shade100 : Colors.red.shade100, borderRadius: BorderRadius.circular(12)),
-                              child: Text(isActive ? 'ยังเกี่ยวข้อง' : 'พ้นสภาพ (${dir['end_date']})', style: TextStyle(fontSize: 12, color: isActive ? Colors.green.shade800 : Colors.red.shade800, fontWeight: FontWeight.bold)),
-                            )
-                          ],
-                        ),
-                        isThreeLine: true,
-                        trailing: IconButton(icon: const Icon(Icons.edit_document, color: Colors.blue), onPressed: () => _showEditDialog(dir)),
-                      ),
-                    );
-                  },
-                ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

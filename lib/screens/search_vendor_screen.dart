@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:rpt_vendor_app/models/rpt_models.dart';
 import 'package:rpt_vendor_app/screens/evaluation_screen.dart';
 
@@ -15,18 +17,16 @@ class SearchVendorScreen extends StatefulWidget {
 }
 
 class _SearchVendorScreenState extends State<SearchVendorScreen> {
-  // Controllers สำหรับข้อมูลทั่วไปของ Vendor
   final TextEditingController _vendorNameCtrl = TextEditingController();
   final TextEditingController _productTypeCtrl = TextEditingController();
   final TextEditingController _addressCtrl = TextEditingController();
   final TextEditingController _contactPersonCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
   
-  // Controller สำหรับกรอกชื่อกรรมการเช็ค RPT หน้างาน
   final TextEditingController _directorNameCtrl = TextEditingController();
   
-  // ลิสต์หลักสำหรับเก็บรายชื่อกรรมการที่คนหน้างานพิมพ์กรอกเข้ามาจริง
   final List<DirectorMatch> _rptResults = []; 
+  bool _isCheckingRpt = false;
 
   @override
   void dispose() {
@@ -39,36 +39,66 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
     super.dispose();
   }
 
-  // 🌟 ฟังก์ชันสำหรับคนหน้างานพิมพ์ชื่อเพิ่มกรรมการลงตารางด้วยตนเอง
-  void _addDirectorToList() {
+  // 🌟 ฟังก์ชันเช็ค RPT จากฐานข้อมูล
+  Future<void> _addDirectorToList() async {
     if (_directorNameCtrl.text.isEmpty) return;
     
+    String nameInput = _directorNameCtrl.text.trim();
+
     setState(() {
-      String nameInput = _directorNameCtrl.text.trim();
-      
-      // 💡 โค้ดดัก Logic ตรวจ RPT เบื้องต้น: หากชื่อมีคำว่า "สมศรี" หรือ "เกี่ยวโยง" จะแกล้งติดตัวแดง RPT ให้ทันทีเพื่อเทสสายงานเซ็นเอกสารครับ
-      bool checkMatch = nameInput.contains('สมศรี') || nameInput.contains('เกี่ยวโยง');
-      
-      _rptResults.add(
-        DirectorMatch(
-          directorId: "MANUAL-${_rptResults.length + 1}",
-          name: nameInput,
-          isMatch: checkMatch,
-          relation: checkMatch ? "เป็นบุคคลเกี่ยวโยง (RPT)" : "-",
-        ),
-      );
-      _directorNameCtrl.clear(); // ล้างช่องพิมพ์หลังกดเพิ่มสำเร็จ
+      _isCheckingRpt = true; 
     });
+
+    try {
+      final String scriptUrl = 'https://script.google.com/macros/s/AKfycbxl01N5r_wjweW_AMlA8kE-P3vkDKU86kxSWNF3UmwlTdy1O16XnktaH1wYMgEScONJ/exec';
+
+      final response = await http.post(
+        Uri.parse(scriptUrl),
+        body: {
+          "action": "check_rpt",
+          "names": jsonEncode([nameInput]), 
+          "vendorName": _vendorNameCtrl.text.isNotEmpty ? _vendorNameCtrl.text : "ไม่ระบุ Vendor",
+          "searchBy": widget.userName,
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        final List<dynamic> result = jsonDecode(response.body);
+        
+        if (result.isNotEmpty) {
+          final matchData = result[0];
+          
+          setState(() {
+            _rptResults.add(
+              DirectorMatch(
+                directorId: matchData['directorId']?.toString() ?? "MANUAL-${_rptResults.length + 1}",
+                name: matchData['name'] ?? nameInput,
+                isMatch: matchData['isMatch'] ?? false,
+                relation: matchData['relation']?.toString() ?? "-",
+              ),
+            );
+            _directorNameCtrl.clear(); 
+          });
+        }
+      } else {
+        _showWarning('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ (Code: ${response.statusCode})');
+      }
+    } catch (e) {
+      _showWarning('เกิดข้อผิดพลาดในการตรวจสอบข้อมูล: $e');
+    } finally {
+      setState(() {
+        _isCheckingRpt = false; 
+      });
+    }
   }
 
-  // ฟังก์ชันกดลบรายชื่อกรรมการออกจากตาราง
   void _removeDirector(int index) {
     setState(() {
       _rptResults.removeAt(index);
     });
   }
 
-  // ฟังก์ชันก้าวไปหน้าถัดไป
+  // 🌟 ฟังก์ชันก้าวไปหน้าประเมิน (จุดที่แก้ปัญหาข้อมูลหาย!)
   void _goToEvaluationPage() {
     if (_vendorNameCtrl.text.isEmpty) {
       _showWarning('กรุณากรอกชื่อผู้ขาย / ซัพพลายเออร์');
@@ -86,13 +116,16 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
     temporaryEval.contactPerson = _contactPersonCtrl.text.isEmpty ? '-' : _contactPersonCtrl.text;
     temporaryEval.phone = _phoneCtrl.text.isEmpty ? '-' : _phoneCtrl.text;
 
+    bool hasRpt = _rptResults.any((element) => element.isMatch);
+    temporaryEval.rptStatus = hasRpt ? 'MATCH' : 'CLEAR';
+
     Navigator.push(
-      context,
+      context, 
       MaterialPageRoute(
         builder: (context) => EvaluationScreen(
           userName: widget.userName,
-          vendorName: temporaryEval.vendorName,
-          searchResults: _rptResults, // ส่งลิสต์กรรมการที่พิมพ์มือทั้งหมดไปคำนวณหน้าคะแนน
+          initialEvalData: temporaryEval, 
+          rptResults: _rptResults, // 🚀 ส่งไม้ผลัด (รายชื่อกรรมการ) พ่วงไปให้หน้าประเมินตรงนี้ครับ!
         ),
       ),
     );
@@ -119,7 +152,6 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ส่วนข้อมูลทั่วไปของ Vendor
             const Text('ข้อมูลทั่วไปของผู้ขาย (Vendor Profile)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue)),
             const SizedBox(height: 4),
             
@@ -178,7 +210,6 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
               child: Divider(height: 1),
             ),
 
-            // 🌟 ส่วนระบบกรอกรายชื่อกรรมการตรวจสอบ RPT แบบคีย์ข้อมูลเองมือ 100%
             const Text('ระบุรายชื่อกรรมการ / ผู้ถือหุ้นตามหนังสือรับรอง (RPT Check)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue)),
             const SizedBox(height: 6),
             Row(
@@ -205,28 +236,35 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
                 const SizedBox(width: 6),
                 SizedBox(
                   height: 36,
-                  child: ElevatedButton.icon(
+                  child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue.shade800, 
                       foregroundColor: Colors.white, 
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))
                     ),
-                    onPressed: _addDirectorToList,
-                    icon: const Icon(Icons.add, size: 14),
-                    label: const Text('เพิ่มชื่อ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    onPressed: _isCheckingRpt ? null : _addDirectorToList, 
+                    child: _isCheckingRpt 
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.search, size: 14),
+                            SizedBox(width: 4),
+                            Text('ตรวจชื่อ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 6),
 
-            // ตารางส่องรายชื่อกรรมการที่ถูกพิมพ์เพิ่มเข้ามาหน้าจอ
             Expanded(
               child: Container(
                 decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(4)),
                 child: _rptResults.isEmpty
-                    ? const Center(child: Text('ยังไม่มีการระบุรายชื่อกรรมการ (ระบุชื่อด้านบนแล้วกด "เพิ่มชื่อ")', style: TextStyle(fontSize: 11.5, color: Colors.black38)))
+                    ? const Center(child: Text('ยังไม่มีการระบุรายชื่อกรรมการ (พิมพ์ชื่อแล้วกดตรวจ)', style: TextStyle(fontSize: 11.5, color: Colors.black38)))
                     : ListView.builder(
                         itemCount: _rptResults.length,
                         itemBuilder: (context, index) {
@@ -256,7 +294,6 @@ class _SearchVendorScreenState extends State<SearchVendorScreen> {
             ),
             const SizedBox(height: 10),
 
-            // ปุ่มส่งข้อมูลไปทำคะแนนต่อ
             SizedBox(
               width: double.infinity,
               height: 44,

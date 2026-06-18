@@ -1,149 +1,80 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/rpt_models.dart';
-import 'package:flutter/foundation.dart';
 
 class ApiService {
-  static const String scriptUrl =
-      "https://script.google.com/macros/s/AKfycbx6GvQzNAHR4wu30XHpNzWgatMhZWUwVxKDN912nZtDqjWbwSKd8tatImuf8tGCQni3/exec";
+  // 🌟 ใส่ URL ของ Google Apps Script ของพี่ต้นตรงนี้
+  static const String scriptUrl = 'https://script.google.com/macros/s/AKfycbxl01N5r_wjweW_AMlA8kE-P3vkDKU86kxSWNF3UmwlTdy1O16XnktaH1wYMgEScONJ/exec';
 
-  // 🌟 ฟังก์ชันตัวกลาง: จัดการปัญหา 302 Redirect พร้อมดักจับ URL ปลายทางและข้อความตอบกลับ
-  static Future<http.Response?> _submitToGoogle(
-    Map<String, String> body,
-  ) async {
-    try {
-      debugPrint('=========================================');
-      debugPrint('กำลังส่งข้อมูลไปที่ Google Apps Script...');
-      var client = http.Client();
-      var request = http.Request('POST', Uri.parse(scriptUrl))
-        ..followRedirects = false
-        ..bodyFields = body;
-
-      var streamedResponse = await client.send(request);
-      var response = await http.Response.fromStream(streamedResponse);
-
-      // ถ้าเจอ 302 / 301
-      if (response.statusCode == 302 || response.statusCode == 301) {
-        String? redirectUrl = response.headers['location'];
-        debugPrint('🚨 เจอ 302! เป้าหมายที่ Google เตะไปคือ: $redirectUrl');
-
-        if (redirectUrl != null) {
-          var redirectedResponse = await http.get(Uri.parse(redirectUrl));
-          debugPrint(
-            '✅ ข้อมูลจากลิงก์ใหม่ (รหัส ${redirectedResponse.statusCode}): ${redirectedResponse.body}',
-          );
-          return redirectedResponse;
-        }
-      } else {
-        // ถ้ารหัสอื่นๆ (เช่น 200 สำเร็จ หรือ 500 พัง) ให้โชว์ออกมาเลย
-        debugPrint('✅ Google ตอบกลับด้วยรหัส: ${response.statusCode}');
-        debugPrint('📦 ข้อมูลที่ตอบกลับมา: ${response.body}');
-      }
-      debugPrint('=========================================');
-      return response;
-    } catch (e) {
-      debugPrint("❌ HTTP Request Error: $e");
-      return null;
-    }
-  }
-
-  static Future<Map<String, dynamic>> login(
-    String empId,
-    String password,
-  ) async {
-    var response = await _submitToGoogle({
-      "action": "login",
-      "emp_id": empId,
-      "password": password,
-    });
-
-    if (response != null && response.statusCode == 200) {
-      return json.decode(response.body);
-    }
-    return {"status": "error"};
-  }
-
-  static Future<List<DirectorMatch>> checkRPT(
-    List<String> names,
-    String vendorName,
-    String searchBy,
-  ) async {
-    var response = await _submitToGoogle({
-      "action": "check_rpt",
-      "names": json.encode(names),
-      "vendor_name": vendorName,
-      "search_by": searchBy,
-    });
-
-    if (response != null && response.statusCode == 200) {
-      List<dynamic> data = json.decode(response.body);
-      return data
-          .map(
-            (item) => DirectorMatch(
-              name: item['name'],
-              isMatch: item['isMatch'],
-              relation: item['relation'],
-              directorId: item['directorId'],
-            ),
-          )
-          .toList();
-    }
-    return [];
-  }
-
-  static Future<bool> addDirector(Map<String, String> data) async {
-    data["action"] = "add_director";
-    var response = await _submitToGoogle(data);
-
-    if (response != null && response.statusCode == 200) {
-      return json.decode(response.body)['status'] == 'success';
-    }
-    return false;
-  }
-
-  static Future<List<String>> scanDocumentOcr(
-    List<int> fileBytes,
-    String fileName,
-  ) async {
-    String base64File = base64Encode(fileBytes);
-
-    var response = await _submitToGoogle({
-      "action": "ocr_scan",
-      "file_name": fileName,
-      "file_data": base64File,
-    });
-
-    if (response != null) {
-      if (response.statusCode == 200) {
-        var result = json.decode(response.body);
-        if (result['status'] == 'success') {
-          return List<String>.from(result['names']);
-        }
-      }
-    }
-    return [];
-  }
-
+// ==========================================
+  // ดึงข้อมูลกรรมการทั้งหมด (เวอร์ชันฟ้อง Error ออกหน้าจอ)
+  // ==========================================
   static Future<List<Map<String, dynamic>>> getAllDirectors() async {
-    var response = await _submitToGoogle({"action": "get_all_directors"});
-
-    if (response != null && response.statusCode == 200) {
-      var result = json.decode(response.body);
-      if (result['status'] == 'success') {
-        return List<Map<String, dynamic>>.from(result['data']);
+    try {
+      final response = await http.post(Uri.parse(scriptUrl), body: {"action": "get_directors"});
+      
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        try {
+          final result = jsonDecode(response.body);
+          if (result['status'] == 'success') {
+            List<dynamic> rawData = result['data'];
+            return rawData.map((e) => {
+              "director_id": e['id'],
+              "first_name": e['firstName'],
+              "last_name": e['lastName'],
+              "relationship": e['relation'],
+              "dob": e['dob'],
+              "age_status": e['ageStatus'],
+              "marital_status": e['maritalStatus'],
+              "active_status": e['activeStatus'],
+              "end_date": e['endDate']
+            }).toList();
+          } else {
+            // 🌟 ฟ้อง Error จากฝั่ง Google Script
+            return [{"first_name": "❌ GAS Error:", "last_name": result['message'], "active_status": "พ้นสภาพ"}];
+          }
+        } catch (e) {
+          // 🌟 ฟ้อง Error กรณี Google ไม่ยอมส่ง JSON มาให้ (มักเกิดจากลืมทำ Anyone)
+          return [{"first_name": "❌ ไม่ใช่ JSON", "last_name": "กรุณาเช็คการ Deploy", "active_status": "พ้นสภาพ"}];
+        }
       }
+      return [{"first_name": "❌ HTTP Error:", "last_name": response.statusCode.toString(), "active_status": "พ้นสภาพ"}];
+    } catch (e) {
+      return [{"first_name": "❌ Network Error:", "last_name": e.toString(), "active_status": "พ้นสภาพ"}];
     }
-    return [];
   }
 
-  static Future<bool> editDirector(Map<String, String> data) async {
-    data["action"] = "edit_director";
-    var response = await _submitToGoogle(data);
+  // ==========================================
+  // แก้ไขข้อมูลกรรมการ
+  // ==========================================
+  static Future<bool> editDirector(Map<String, dynamic> data) async {
+    try {
+      final response = await http.post(
+        Uri.parse(scriptUrl),
+        body: {
+          "action": "update_director",
+          "directorId": data['director_id']?.toString() ?? "",
+          "fullName": "${data['first_name']} ${data['last_name']}",
+          "firstName": data['first_name']?.toString() ?? "",
+          "lastName": data['last_name']?.toString() ?? "",
+          "relation": data['relationship']?.toString() ?? "",
+          "dob": data['dob']?.toString() ?? "",
+          "ageStatus": data['age_status']?.toString() ?? "",
+          "maritalStatus": data['marital_status']?.toString() ?? "",
+          "activeStatus": data['active_status']?.toString() ?? "",
+          "endDate": data['end_date']?.toString() ?? "-",
+        },
+      );
 
-    if (response != null && response.statusCode == 200) {
-      var result = json.decode(response.body);
-      return result['status'] == 'success';
+      if (response.statusCode == 200 || response.statusCode == 302) {
+        final result = jsonDecode(response.body);
+        return result['status'] == 'success';
+      }
+      return false;
+    } catch (e) {
+      print("Error editDirector: $e");
+      return false;
     }
-    return false;
   }
+  
+  // (ถ้ามีฟังก์ชัน addDirector เดิมอยู่แล้ว ก็ปล่อยไว้ได้เลยครับ)
 }
