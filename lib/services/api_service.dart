@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 class ApiService {
   // 🌟 ใส่ URL ของ Google Apps Script ของพี่ต้นตรงนี้
   static const String scriptUrl =
-      'https://script.google.com/macros/s/AKfycbw9U7rcS469vPjpHujj8ih9_mKcK4yZhQEDejK_T7z0teB69EeX5QjkZ7elleN-QW5u/exec';
+      'https://script.google.com/macros/s/AKfycbwy3Sb2boSoBUi78CWbk32pqACnyOqM-tTOTNPWZeT8NcvYrCcueJlEuAska5jfV-Bl/exec';
 
   // ==========================================
   // ดึงข้อมูลกรรมการทั้งหมด (เวอร์ชันฟ้อง Error ออกหน้าจอ)

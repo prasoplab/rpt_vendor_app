@@ -139,7 +139,7 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
 
   Future<void> _fetchExistingData() async {
     const String scriptUrl =
-        'https://script.google.com/macros/s/AKfycbw9U7rcS469vPjpHujj8ih9_mKcK4yZhQEDejK_T7z0teB69EeX5QjkZ7elleN-QW5u/exec';
+        'https://script.google.com/macros/s/AKfycbwbUCONxZIid3zPKlPMvQ1BYPDaPeozB-P8HlapH7dgZd-KisapfWlglUFmkuwnvBKy/exec';
     try {
       final response = await http.post(
         Uri.parse(scriptUrl),
@@ -225,7 +225,7 @@ class _VendorRegistrationScreenState extends State<VendorRegistrationScreen> {
     setState(() => _isLoading = true);
 
     const String scriptUrl =
-        'https://script.google.com/macros/s/AKfycbw9U7rcS469vPjpHujj8ih9_mKcK4yZhQEDejK_T7z0teB69EeX5QjkZ7elleN-QW5u/exec';
+        'https://script.google.com/macros/s/AKfycbwbUCONxZIid3zPKlPMvQ1BYPDaPeozB-P8HlapH7dgZd-KisapfWlglUFmkuwnvBKy/exec';
 
     List<String> ccList = [];
     if (_cc1000) ccList.add('1000');

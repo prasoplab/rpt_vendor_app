@@ -44,7 +44,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     const String scriptUrl =
-        'https://script.google.com/macros/s/AKfycbyqEiOm2tkx2xvcgyX4GsdAShoEJznCgeQFGGPrMglBUSKq9dgVCpPwwro4ZSsuM8ta/exec';
+        'https://script.google.com/macros/s/AKfycbwy3Sb2boSoBUi78CWbk32pqACnyOqM-tTOTNPWZeT8NcvYrCcueJlEuAska5jfV-Bl/exec';
 
     try {
       final response = await http.post(

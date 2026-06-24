@@ -41,7 +41,7 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
     });
 
     const String scriptUrl =
-        'https://script.google.com/macros/s/AKfycbw9U7rcS469vPjpHujj8ih9_mKcK4yZhQEDejK_T7z0teB69EeX5QjkZ7elleN-QW5u/exec';
+        'https://script.google.com/macros/s/AKfycbwy3Sb2boSoBUi78CWbk32pqACnyOqM-tTOTNPWZeT8NcvYrCcueJlEuAska5jfV-Bl/exec';
 
     final Map<String, dynamic> payload = {
       "action": evalData.evalId != null
